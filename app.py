@@ -128,36 +128,31 @@ def daily_focus_signals(entry):
 # -----------------------------------
 # AI MODEL CALL (THIS IS THE REAL AI)
 # -----------------------------------
-def ai_focus_generator(username, age, signals, today=True):
-    if not signals:
-        return f"Great job {username}! Your routine looks balanced."
-
-    if today:
-        task = """
-Explain what happened today in simple daily-life language.
-Focus on awareness, reflection, and calm reassurance.
-Do NOT repeat advice for tomorrow.
-"""
-    else:
-        task = """
-Give a clear, actionable focus plan for tomorrow.
-Mention specific actions like sleep timing, walking, routine, or reminders.
-Encourage gently.
-"""
+def ai_focus_generator(username, age, entry, today=True):
+    day = "today" if today else "tomorrow"
 
     prompt = f"""
 User name: {username}
 Age: {age}
 
-Health signals detected:
-{", ".join(signals)}
+Health data:
+- Fasting sugar: {entry["fasting"]}
+- Post-meal sugar: {entry["post_meal"]}
+- Sleep hours: {entry["sleep"]}
+- Physical activity: {entry["activity"]}
+- Medication taken: {entry["medication"]}
 
-{task}
+Task:
+Explain {day}'s focus in simple daily-life language.
 
-Rules:
-- No medical diagnosis
-- If sugar is very high or very low, suggest consulting a doctor
-- Keep tone friendly and human
+Instructions:
+- Base the response ONLY on the numbers and values above
+- If sugar is very high or very low, clearly mention concern
+- For today: explain what this data suggests
+- For tomorrow: suggest specific, actionable habits
+- Do NOT repeat generic advice
+- Do NOT give medical diagnosis
+- If levels are concerning, suggest consulting a doctor
 """
 
     try:
@@ -165,10 +160,9 @@ Rules:
         return response.text.strip()
     except Exception:
         if today:
-            return f"{username}, today showed some imbalance. Take it easy and observe patterns."
+            return f"{username}, today’s readings show imbalance. Observe your routine calmly."
         else:
-            return f"{username}, tomorrow try improving sleep and light activity."
-
+            return f"{username}, tomorrow focus on better sleep and light activity."
 
 # -----------------------------------
 # AGENT
@@ -180,7 +174,7 @@ def diabetes_agent(username, entry):
     current = detect_pattern(history)
     previous = previous_pattern(history)
     confidence = confidence_score(entry)
-    signals = daily_focus_signals(entry)
+    
 
     today_focus = ai_focus_generator(username, entry["age"], signals, today=True)
     tomorrow_focus = ai_focus_generator(username, entry["age"], signals, today=False)
