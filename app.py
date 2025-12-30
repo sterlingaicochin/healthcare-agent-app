@@ -4,9 +4,16 @@ import os
 from datetime import datetime
 from statistics import mean
 from fpdf import FPDF
+import google.generativeai as genai
 
 # -----------------------------------
-# Session State
+# CONFIGURE GEMINI
+# -----------------------------------
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+gemini = genai.GenerativeModel("gemini-1.5-flash")
+
+# -----------------------------------
+# SESSION STATE
 # -----------------------------------
 if "user" not in st.session_state:
     st.session_state.user = None
@@ -15,7 +22,7 @@ if "result" not in st.session_state:
     st.session_state.result = None
 
 # -----------------------------------
-# Utilities
+# UTILITIES
 # -----------------------------------
 def clean_text(text):
     return text.encode("latin-1", "ignore").decode("latin-1")
@@ -25,7 +32,7 @@ def user_file(username):
     return f"data/{username}_history.json"
 
 # -----------------------------------
-# Storage
+# STORAGE
 # -----------------------------------
 def load_history(username):
     try:
@@ -39,7 +46,7 @@ def save_history(username, data):
         json.dump(data, f, indent=2)
 
 # -----------------------------------
-# Entry
+# ENTRY
 # -----------------------------------
 def create_entry(username, age, date, fasting, post_meal, sleep, activity, mood, medication):
     return {
@@ -55,7 +62,7 @@ def create_entry(username, age, date, fasting, post_meal, sleep, activity, mood,
     }
 
 # -----------------------------------
-# Pattern Detection
+# PATTERN DETECTION (RULE-BASED)
 # -----------------------------------
 def detect_pattern(history):
     if len(history) < 3:
@@ -81,7 +88,7 @@ def previous_pattern(history):
     return detect_pattern(history[:-1])
 
 # -----------------------------------
-# Confidence
+# CONFIDENCE SCORE
 # -----------------------------------
 def confidence_score(entry):
     score = 100
@@ -96,65 +103,62 @@ def confidence_score(entry):
     return max(score, 0)
 
 # -----------------------------------
-# Daily Focus
+# RAW FOCUS SIGNALS (RULES)
 # -----------------------------------
-def daily_focus(entry):
-    tips = []
+def daily_focus_signals(entry):
+    signals = []
 
     if entry["sleep"] < 6:
-        tips.append("Try to sleep earlier tonight and aim for at least 7 hours.")
+        signals.append("Low sleep")
 
     if entry["activity"] == "low":
-        tips.append("Add a 10–15 minute walk after meals.")
+        signals.append("Low physical activity")
 
     if entry["medication"] == "no":
-        tips.append("Set a reminder to take medication consistently.")
+        signals.append("Missed medication")
 
     if entry["fasting"] > 180 or entry["fasting"] < 70:
-        tips.append("Sugar levels are concerning today. Please consult a doctor.")
+        signals.append("Critical sugar level")
 
     if entry["sleep"] >= 7 and entry["activity"] != "low":
-        tips.append("Good job maintaining sleep and activity.")
+        signals.append("Good routine")
 
-    return tips
-
-# -----------------------------------
-# Weekly Trend
-# -----------------------------------
-def weekly_trend(history):
-    if len(history) < 7:
-        return None
-
-    last = history[-7:]
-    return {
-        "Average Fasting": round(mean(d["fasting"] for d in last), 1),
-        "Average Post-Meal": round(mean(d["post_meal"] for d in last), 1),
-        "Average Sleep (hrs)": round(mean(d["sleep"] for d in last), 1)
-    }
+    return signals
 
 # -----------------------------------
-# Explanation (Fast, Safe)
+# AI MODEL CALL (THIS IS THE REAL AI)
 # -----------------------------------
-def explain_pattern(username, age, current, previous):
-    msg = f"{username}, based on recent entries:\n\n"
+def ai_focus_generator(username, age, signals, today=True):
+    if not signals:
+        return f"Great job {username}! Your routine looks balanced."
 
-    if previous and previous != current:
-        msg += f"Earlier pattern was '{previous}'. Now it is '{current}'.\n\n"
+    day = "today" if today else "tomorrow"
 
-    if current == "very high readings":
-        msg += "Sugar levels are often high. Focus on sleep, routine meals, and light activity."
-    elif current == "very low readings":
-        msg += "Sugar levels are low. Monitor carefully and seek medical guidance."
-    elif current == "stable routine":
-        msg += "Your routine looks stable. Keep maintaining consistency."
-    else:
-        msg += "Readings vary. Improving daily routine consistency may help."
+    prompt = f"""
+User name: {username}
+Age: {age}
 
-    msg += f"\n\n(Age considered: {age})"
-    return msg
+Health signals:
+{", ".join(signals)}
+
+Task:
+Explain the focus for {day} in simple, friendly, daily-life language.
+Encourage gently.
+Do NOT give medical diagnosis.
+If sugar is very high or very low, suggest consulting a doctor.
+"""
+
+    try:
+        response = gemini.generate_content(prompt)
+        return response.text.strip()
+    except Exception:
+        return (
+            f"{username}, focus on improving sleep, activity, and routine consistency. "
+            "If readings feel concerning, consult a doctor."
+        )
 
 # -----------------------------------
-# Agent
+# AGENT
 # -----------------------------------
 def diabetes_agent(username, entry):
     history = load_history(username)
@@ -163,12 +167,14 @@ def diabetes_agent(username, entry):
     current = detect_pattern(history)
     previous = previous_pattern(history)
     confidence = confidence_score(entry)
-    focus = daily_focus(entry)
-    weekly = weekly_trend(history)
-    explanation = explain_pattern(username, entry["age"], current, previous)
+    signals = daily_focus_signals(entry)
+
+    today_focus = ai_focus_generator(username, entry["age"], signals, today=True)
+    tomorrow_focus = ai_focus_generator(username, entry["age"], signals, today=False)
 
     save_history(username, history)
-    return current, explanation, confidence, focus, weekly
+
+    return current, confidence, today_focus, tomorrow_focus
 
 # -----------------------------------
 # PDF
@@ -199,7 +205,7 @@ st.set_page_config("Diabetic Support Agent", layout="centered")
 # ---------- LOGIN ----------
 if not st.session_state.user:
     st.title("🔐 Login")
-    username = st.text_input("Enter your name to continue")
+    username = st.text_input("Enter your name")
 
     if st.button("Login"):
         if username.strip():
@@ -207,12 +213,11 @@ if not st.session_state.user:
             st.rerun()
         else:
             st.error("Please enter a valid name.")
-
     st.stop()
 
 # ---------- MAIN APP ----------
 username = st.session_state.user
-st.title(f"📱 Diabetic Daily Support Agent")
+st.title("📱 Diabetic Daily Support Agent")
 st.caption(f"Logged in as: **{username}**")
 
 age = st.number_input("Age", 10, 100, 40)
@@ -230,20 +235,16 @@ if st.button("Submit Daily Log"):
 
 # ---------- OUTPUT ----------
 if st.session_state.result:
-    pattern, explanation, confidence, focus, weekly = st.session_state.result
+    pattern, confidence, today_focus, tomorrow_focus = st.session_state.result
 
     st.success(f"Current Pattern: {pattern.title()}")
     st.metric("Daily Stability Confidence", f"{confidence}%")
-    st.write(explanation)
 
-    if focus:
-        st.warning("### Tomorrow’s Focus")
-        for f in focus:
-            st.write(f"- {f}")
+    st.warning("### Today’s Focus")
+    st.write(today_focus)
 
-    if weekly:
-        st.info("### Weekly Trend")
-        st.json(weekly)
+    st.info("### Tomorrow’s Focus")
+    st.write(tomorrow_focus)
 
     history = load_history(username)
     pdf = generate_pdf(username, history)
