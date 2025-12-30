@@ -7,7 +7,7 @@ from fpdf import FPDF
 import google.generativeai as genai
 
 # -----------------------------------
-# CONFIGURE GEMINI
+# GEMINI CONFIG
 # -----------------------------------
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 gemini = genai.GenerativeModel("gemini-1.5-flash")
@@ -22,18 +22,12 @@ if "result" not in st.session_state:
     st.session_state.result = None
 
 # -----------------------------------
-# UTILITIES
+# FILE UTILS
 # -----------------------------------
-def clean_text(text):
-    return text.encode("latin-1", "ignore").decode("latin-1")
-
 def user_file(username):
     os.makedirs("data", exist_ok=True)
     return f"data/{username}_history.json"
 
-# -----------------------------------
-# STORAGE
-# -----------------------------------
 def load_history(username):
     try:
         with open(user_file(username), "r") as f:
@@ -62,7 +56,7 @@ def create_entry(username, age, date, fasting, post_meal, sleep, activity, mood,
     }
 
 # -----------------------------------
-# PATTERN DETECTION (RULE-BASED)
+# PATTERN (RULE BASED – SAFE)
 # -----------------------------------
 def detect_pattern(history):
     if len(history) < 3:
@@ -82,11 +76,6 @@ def detect_pattern(history):
     else:
         return "mixed pattern"
 
-def previous_pattern(history):
-    if len(history) < 4:
-        return None
-    return detect_pattern(history[:-1])
-
 # -----------------------------------
 # CONFIDENCE SCORE
 # -----------------------------------
@@ -103,30 +92,7 @@ def confidence_score(entry):
     return max(score, 0)
 
 # -----------------------------------
-# RAW FOCUS SIGNALS (RULES)
-# -----------------------------------
-def daily_focus_signals(entry):
-    signals = []
-
-    if entry["sleep"] < 6:
-        signals.append("Low sleep")
-
-    if entry["activity"] == "low":
-        signals.append("Low physical activity")
-
-    if entry["medication"] == "no":
-        signals.append("Missed medication")
-
-    if entry["fasting"] > 180 or entry["fasting"] < 70:
-        signals.append("Critical sugar level")
-
-    if entry["sleep"] >= 7 and entry["activity"] != "low":
-        signals.append("Good routine")
-
-    return signals
-
-# -----------------------------------
-# AI MODEL CALL (THIS IS THE REAL AI)
+# AI FOCUS (REAL MODEL CALL)
 # -----------------------------------
 def ai_focus_generator(username, age, entry, today=True):
     day = "today" if today else "tomorrow"
@@ -145,14 +111,13 @@ Health data:
 Task:
 Explain {day}'s focus in simple daily-life language.
 
-Instructions:
-- Base the response ONLY on the numbers and values above
-- If sugar is very high or very low, clearly mention concern
+Rules:
+- Base explanation ONLY on the values above
+- If sugar is very high or very low, mention concern
 - For today: explain what this data suggests
-- For tomorrow: suggest specific, actionable habits
-- Do NOT repeat generic advice
-- Do NOT give medical diagnosis
-- If levels are concerning, suggest consulting a doctor
+- For tomorrow: suggest specific actionable habits
+- No medical diagnosis
+- Suggest doctor consultation if concerning
 """
 
     try:
@@ -160,9 +125,9 @@ Instructions:
         return response.text.strip()
     except Exception:
         if today:
-            return f"{username}, today’s readings show imbalance. Observe your routine calmly."
+            return f"{username}, today showed imbalance. Observe your routine calmly."
         else:
-            return f"{username}, tomorrow focus on better sleep and light activity."
+            return f"{username}, tomorrow try better sleep and light activity."
 
 # -----------------------------------
 # AGENT
@@ -171,34 +136,31 @@ def diabetes_agent(username, entry):
     history = load_history(username)
     history.append(entry)
 
-    current = detect_pattern(history)
-    previous = previous_pattern(history)
+    pattern = detect_pattern(history)
     confidence = confidence_score(entry)
-    
 
-    today_focus = ai_focus_generator(username, entry["age"], signals, today=True)
-    tomorrow_focus = ai_focus_generator(username, entry["age"], signals, today=False)
+    today_focus = ai_focus_generator(username, entry["age"], entry, today=True)
+    tomorrow_focus = ai_focus_generator(username, entry["age"], entry, today=False)
 
     save_history(username, history)
 
-    return current, confidence, today_focus, tomorrow_focus
+    return pattern, confidence, today_focus, tomorrow_focus
 
 # -----------------------------------
 # PDF
 # -----------------------------------
 def generate_pdf(username, history):
-    user = history[-1]
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
 
-    title = f"Diabetic Support Report - {username} (Age {user['age']})"
-    pdf.cell(0, 10, clean_text(title), ln=True)
+    title = f"Diabetic Support Report - {username.title()}"
+    pdf.cell(0, 10, title, ln=True)
     pdf.ln(5)
 
     for d in history[-7:]:
         line = f"{d['date']} | Fasting {d['fasting']} | Post {d['post_meal']} | Sleep {d['sleep']}h"
-        pdf.cell(0, 8, clean_text(line), ln=True)
+        pdf.cell(0, 8, line, ln=True)
 
     file = f"{username}_diabetes_report.pdf"
     pdf.output(file)
@@ -225,7 +187,7 @@ if not st.session_state.user:
 # ---------- MAIN APP ----------
 username = st.session_state.user
 st.title("📱 Diabetic Daily Support Agent")
-st.caption(f"Logged in as: **{username}**")
+st.caption(f"Logged in as **{username}**")
 
 age = st.number_input("Age", 10, 100, 40)
 date = st.text_input("Date", value=str(datetime.today().date()))
