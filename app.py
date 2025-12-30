@@ -10,14 +10,8 @@ import google.generativeai as genai
 # GEMINI CONFIG
 # -----------------------------
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash",
-    generation_config={
-        "temperature": 0.9,
-        "top_p": 0.9,
-        "max_output_tokens": 200
-    }
-)
+model = genai.GenerativeModel("gemini-pro")
+
 
 # -----------------------------
 # SESSION
