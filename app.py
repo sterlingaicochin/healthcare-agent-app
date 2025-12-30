@@ -131,30 +131,38 @@ def weekly_trend(history):
 # Stronger AI Model
 # -----------------------------------
 
-explainer = pipeline("text-generation", model="google/flan-t5-base")
+explainer = pipeline(
+    "text-generation",
+    model="microsoft/phi-2",
+    device=-1
+)
+
 
 def ai_explanation(name, age, current, previous):
     prompt = (
-        f"{name} is {age} years old. "
-        f"Earlier pattern: {previous}. Current pattern: {current}. "
-        f"Explain gently in simple daily language what this means "
-        f"and what habits can help tomorrow. End positively."
+        f"{name}, age {age}, daily health summary:\n"
+        f"Earlier pattern: {previous}\n"
+        f"Current pattern: {current}\n"
+        f"Summary:"
     )
 
     result = explainer(
         prompt,
-        max_length=160,
+        max_new_tokens=120,
         do_sample=True,
-        temperature=0.7,
-        top_p=0.9
+        temperature=0.6,
+        top_p=0.9,
+        repetition_penalty=1.1
     )
 
     text = result[0]["generated_text"]
 
-    if "Current pattern" in text:
-        text = text.split("Current pattern")[-1]
+    # Remove prompt if echoed
+    if "Summary:" in text:
+        text = text.split("Summary:")[-1].strip()
 
-    return text.strip()
+    return text
+
 
 # -----------------------------------
 # Agent Orchestrator
