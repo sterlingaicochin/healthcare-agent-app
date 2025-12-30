@@ -1,5 +1,6 @@
 import streamlit as st
 import json
+import os
 from datetime import datetime
 from statistics import mean
 from fpdf import FPDF
@@ -7,34 +8,42 @@ from fpdf import FPDF
 # -----------------------------------
 # Session State
 # -----------------------------------
+if "user" not in st.session_state:
+    st.session_state.user = None
+
 if "result" not in st.session_state:
     st.session_state.result = None
 
 # -----------------------------------
-# Configuration
+# Utilities
 # -----------------------------------
-DATA_FILE = "diabetes_history.json"
+def clean_text(text):
+    return text.encode("latin-1", "ignore").decode("latin-1")
+
+def user_file(username):
+    os.makedirs("data", exist_ok=True)
+    return f"data/{username}_history.json"
 
 # -----------------------------------
 # Storage
 # -----------------------------------
-def load_history():
+def load_history(username):
     try:
-        with open(DATA_FILE, "r") as f:
+        with open(user_file(username), "r") as f:
             return json.load(f)
     except:
         return []
 
-def save_history(data):
-    with open(DATA_FILE, "w") as f:
+def save_history(username, data):
+    with open(user_file(username), "w") as f:
         json.dump(data, f, indent=2)
 
 # -----------------------------------
 # Entry
 # -----------------------------------
-def create_entry(name, age, date, fasting, post_meal, sleep, activity, mood, medication):
+def create_entry(username, age, date, fasting, post_meal, sleep, activity, mood, medication):
     return {
-        "name": name,
+        "user": username,
         "age": age,
         "date": date,
         "fasting": fasting,
@@ -105,7 +114,7 @@ def daily_focus(entry):
         tips.append("Sugar levels are concerning today. Please consult a doctor.")
 
     if entry["sleep"] >= 7 and entry["activity"] != "low":
-        tips.append("Great job maintaining good sleep and activity 👏")
+        tips.append("Good job maintaining sleep and activity.")
 
     return tips
 
@@ -124,22 +133,22 @@ def weekly_trend(history):
     }
 
 # -----------------------------------
-# Explanation (Fast & Safe)
+# Explanation (Fast, Safe)
 # -----------------------------------
-def explain_pattern(name, age, current, previous):
-    msg = f"{name}, based on recent entries:\n\n"
+def explain_pattern(username, age, current, previous):
+    msg = f"{username}, based on recent entries:\n\n"
 
     if previous and previous != current:
         msg += f"Earlier pattern was '{previous}'. Now it is '{current}'.\n\n"
 
     if current == "very high readings":
-        msg += "Sugar levels are frequently high. Focus on sleep, regular meals, and activity."
+        msg += "Sugar levels are often high. Focus on sleep, routine meals, and light activity."
     elif current == "very low readings":
-        msg += "Sugar levels are running low. Monitor carefully and seek medical guidance."
+        msg += "Sugar levels are low. Monitor carefully and seek medical guidance."
     elif current == "stable routine":
-        msg += "Your routine looks stable. Keep maintaining sleep, activity, and consistency."
+        msg += "Your routine looks stable. Keep maintaining consistency."
     else:
-        msg += "Your readings vary day to day. Improving routine consistency may help."
+        msg += "Readings vary. Improving daily routine consistency may help."
 
     msg += f"\n\n(Age considered: {age})"
     return msg
@@ -147,8 +156,8 @@ def explain_pattern(name, age, current, previous):
 # -----------------------------------
 # Agent
 # -----------------------------------
-def diabetes_agent(entry):
-    history = load_history()
+def diabetes_agent(username, entry):
+    history = load_history(username)
     history.append(entry)
 
     current = detect_pattern(history)
@@ -156,49 +165,56 @@ def diabetes_agent(entry):
     confidence = confidence_score(entry)
     focus = daily_focus(entry)
     weekly = weekly_trend(history)
-    explanation = explain_pattern(entry["name"], entry["age"], current, previous)
+    explanation = explain_pattern(username, entry["age"], current, previous)
 
-    save_history(history)
+    save_history(username, history)
     return current, explanation, confidence, focus, weekly
 
 # -----------------------------------
 # PDF
 # -----------------------------------
-def clean_text(text):
-    return text.encode("latin-1", "ignore").decode("latin-1")
-
-def generate_pdf(history):
+def generate_pdf(username, history):
     user = history[-1]
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
 
-    title = f"Diabetic Support Report - {user['name']} (Age {user['age']})"
+    title = f"Diabetic Support Report - {username} (Age {user['age']})"
     pdf.cell(0, 10, clean_text(title), ln=True)
     pdf.ln(5)
 
     for d in history[-7:]:
-        line = (
-            f"{d['date']} | "
-            f"Fasting: {d['fasting']} | "
-            f"Post: {d['post_meal']} | "
-            f"Sleep: {d['sleep']}h"
-        )
+        line = f"{d['date']} | Fasting {d['fasting']} | Post {d['post_meal']} | Sleep {d['sleep']}h"
         pdf.cell(0, 8, clean_text(line), ln=True)
 
-    file_name = "diabetes_report.pdf"
-    pdf.output(file_name)
-    return file_name
-
+    file = f"{username}_diabetes_report.pdf"
+    pdf.output(file)
+    return file
 
 # -----------------------------------
 # UI
 # -----------------------------------
 st.set_page_config("Diabetic Support Agent", layout="centered")
-st.title("📱 Diabetic Daily Support Agent")
-st.caption("Pattern awareness • Habit guidance • Non-diagnostic")
 
-name = st.text_input("Your Name")
+# ---------- LOGIN ----------
+if not st.session_state.user:
+    st.title("🔐 Login")
+    username = st.text_input("Enter your name to continue")
+
+    if st.button("Login"):
+        if username.strip():
+            st.session_state.user = username.strip().lower()
+            st.rerun()
+        else:
+            st.error("Please enter a valid name.")
+
+    st.stop()
+
+# ---------- MAIN APP ----------
+username = st.session_state.user
+st.title(f"📱 Diabetic Daily Support Agent")
+st.caption(f"Logged in as: **{username}**")
+
 age = st.number_input("Age", 10, 100, 40)
 date = st.text_input("Date", value=str(datetime.today().date()))
 fasting = st.number_input("Fasting Sugar", 60, 300, 110)
@@ -209,16 +225,10 @@ mood = st.selectbox("Mood", ["good", "okay", "low"])
 medication = st.selectbox("Medication Taken Today?", ["yes", "no"])
 
 if st.button("Submit Daily Log"):
-    if not name.strip():
-        st.error("Please enter your name.")
-        st.stop()
+    entry = create_entry(username, age, date, fasting, post_meal, sleep, activity, mood, medication)
+    st.session_state.result = diabetes_agent(username, entry)
 
-    entry = create_entry(name, age, date, fasting, post_meal, sleep, activity, mood, medication)
-    st.session_state.result = diabetes_agent(entry)
-
-# -----------------------------------
-# Output
-# -----------------------------------
+# ---------- OUTPUT ----------
 if st.session_state.result:
     pattern, explanation, confidence, focus, weekly = st.session_state.result
 
@@ -235,12 +245,17 @@ if st.session_state.result:
         st.info("### Weekly Trend")
         st.json(weekly)
 
-    history = load_history()
-    pdf = generate_pdf(history)
+    history = load_history(username)
+    pdf = generate_pdf(username, history)
     with open(pdf, "rb") as f:
-        st.download_button("Download PDF Report", f, file_name=pdf)
+        st.download_button("Download My PDF Report", f, file_name=pdf)
 
     st.caption(
         "This tool does not provide medical advice. "
         "Consult a healthcare professional for clinical decisions."
     )
+
+if st.button("Logout"):
+    st.session_state.user = None
+    st.session_state.result = None
+    st.rerun()
