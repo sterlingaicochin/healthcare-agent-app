@@ -105,20 +105,34 @@ def weekly_trend(history):
 explainer = pipeline("text-generation", model="google/flan-t5-small")
 
 def ai_explanation(current, previous):
-    prompt = (
-        f"Explain for a diabetic person in simple daily-life language. "
-        f"Earlier pattern: {previous}. Current pattern: {current}. "
-        f"Focus on habits like sleep, activity, routine. No medical advice."
-    )
+    if previous:
+        prompt = (
+            f"Earlier days showed {previous}. "
+            f"Today shows {current}. "
+            f"This means:"
+        )
+    else:
+        prompt = (
+            f"Today shows {current}. "
+            f"This means:"
+        )
 
     result = explainer(
         prompt,
-        max_length=120,
+        max_length=150,
         do_sample=True,
-        temperature=0.7
+        temperature=0.8,
+        top_p=0.9
     )
 
-    return result[0]["generated_text"]
+    text = result[0]["generated_text"]
+
+    # Remove prompt echo if present
+    if "This means:" in text:
+        text = text.split("This means:")[-1].strip()
+
+    return text
+
 
 # -----------------------------------
 # Agent Orchestrator
