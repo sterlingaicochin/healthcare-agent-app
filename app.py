@@ -2,7 +2,6 @@ import streamlit as st
 import json
 from datetime import datetime
 from statistics import mean
-from transformers import pipeline
 from fpdf import FPDF
 
 # -----------------------------------
@@ -17,7 +16,7 @@ if "result" not in st.session_state:
 DATA_FILE = "diabetes_history.json"
 
 # -----------------------------------
-# Memory Handling
+# Storage
 # -----------------------------------
 def load_history():
     try:
@@ -31,7 +30,7 @@ def save_history(data):
         json.dump(data, f, indent=2)
 
 # -----------------------------------
-# Entry Creation
+# Entry
 # -----------------------------------
 def create_entry(name, age, date, fasting, post_meal, sleep, activity, mood, medication):
     return {
@@ -54,15 +53,15 @@ def detect_pattern(history):
         return "insufficient data"
 
     recent = history[-3:]
-    avg_fasting = mean(d["fasting"] for d in recent)
-    avg_post = mean(d["post_meal"] for d in recent)
-    avg_sleep = mean(d["sleep"] for d in recent)
+    avg_f = mean(d["fasting"] for d in recent)
+    avg_p = mean(d["post_meal"] for d in recent)
+    avg_s = mean(d["sleep"] for d in recent)
 
-    if avg_fasting > 180 or avg_post > 250:
+    if avg_f > 180 or avg_p > 250:
         return "very high readings"
-    elif avg_fasting < 70:
+    elif avg_f < 70:
         return "very low readings"
-    elif avg_fasting < 120 and avg_sleep >= 7:
+    elif avg_f < 120 and avg_s >= 7:
         return "stable routine"
     else:
         return "mixed pattern"
@@ -73,11 +72,10 @@ def previous_pattern(history):
     return detect_pattern(history[:-1])
 
 # -----------------------------------
-# Confidence Score
+# Confidence
 # -----------------------------------
 def confidence_score(entry):
     score = 100
-
     if entry["fasting"] > 160 or entry["fasting"] < 70:
         score -= 30
     if entry["sleep"] < 6:
@@ -86,31 +84,30 @@ def confidence_score(entry):
         score -= 15
     if entry["medication"] == "no":
         score -= 20
-
     return max(score, 0)
 
 # -----------------------------------
 # Daily Focus
 # -----------------------------------
 def daily_focus(entry):
-    focus = []
+    tips = []
 
     if entry["sleep"] < 6:
-        focus.append("Try to sleep earlier tonight and aim for at least 7 hours.")
+        tips.append("Try to sleep earlier tonight and aim for at least 7 hours.")
 
     if entry["activity"] == "low":
-        focus.append("Add a 10–15 minute walk after meals.")
+        tips.append("Add a 10–15 minute walk after meals.")
 
     if entry["medication"] == "no":
-        focus.append("Set a reminder to take medication consistently.")
+        tips.append("Set a reminder to take medication consistently.")
 
     if entry["fasting"] > 180 or entry["fasting"] < 70:
-        focus.append("Sugar levels are concerning today. Please consult a doctor.")
+        tips.append("Sugar levels are concerning today. Please consult a doctor.")
 
     if entry["sleep"] >= 7 and entry["activity"] != "low":
-        focus.append("Great job maintaining good sleep and activity 👏")
+        tips.append("Great job maintaining good sleep and activity 👏")
 
-    return focus
+    return tips
 
 # -----------------------------------
 # Weekly Trend
@@ -119,51 +116,36 @@ def weekly_trend(history):
     if len(history) < 7:
         return None
 
-    last_week = history[-7:]
+    last = history[-7:]
     return {
-        "Average Fasting": round(mean(d["fasting"] for d in last_week), 1),
-        "Average Post-Meal": round(mean(d["post_meal"] for d in last_week), 1),
-        "Average Sleep (hrs)": round(mean(d["sleep"] for d in last_week), 1)
+        "Average Fasting": round(mean(d["fasting"] for d in last), 1),
+        "Average Post-Meal": round(mean(d["post_meal"] for d in last), 1),
+        "Average Sleep (hrs)": round(mean(d["sleep"] for d in last), 1)
     }
 
 # -----------------------------------
-# AI Model (CPU Safe)
+# Explanation (Fast & Safe)
 # -----------------------------------
-@st.cache_resource
-def load_model():
-    return pipeline(
-        "text-generation",
-        model="microsoft/phi-2",
-        device=-1
-    )
+def explain_pattern(name, age, current, previous):
+    msg = f"{name}, based on recent entries:\n\n"
 
-explainer = load_model()
+    if previous and previous != current:
+        msg += f"Earlier pattern was '{previous}'. Now it is '{current}'.\n\n"
 
-def ai_explanation(name, age, current, previous):
-    prompt = (
-        f"{name}, age {age}, daily health summary.\n"
-        f"Earlier pattern: {previous}\n"
-        f"Current pattern: {current}\n"
-        f"Explain in simple daily-life language. Summary:"
-    )
+    if current == "very high readings":
+        msg += "Sugar levels are frequently high. Focus on sleep, regular meals, and activity."
+    elif current == "very low readings":
+        msg += "Sugar levels are running low. Monitor carefully and seek medical guidance."
+    elif current == "stable routine":
+        msg += "Your routine looks stable. Keep maintaining sleep, activity, and consistency."
+    else:
+        msg += "Your readings vary day to day. Improving routine consistency may help."
 
-    result = explainer(
-        prompt,
-        max_new_tokens=120,
-        temperature=0.6,
-        top_p=0.9,
-        repetition_penalty=1.1
-    )
-
-    text = result[0]["generated_text"]
-
-    if "Summary:" in text:
-        text = text.split("Summary:")[-1].strip()
-
-    return text
+    msg += f"\n\n(Age considered: {age})"
+    return msg
 
 # -----------------------------------
-# Agent Orchestrator
+# Agent
 # -----------------------------------
 def diabetes_agent(entry):
     history = load_history()
@@ -174,14 +156,13 @@ def diabetes_agent(entry):
     confidence = confidence_score(entry)
     focus = daily_focus(entry)
     weekly = weekly_trend(history)
-    explanation = ai_explanation(entry["name"], entry["age"], current, previous)
+    explanation = explain_pattern(entry["name"], entry["age"], current, previous)
 
     save_history(history)
-
     return current, explanation, confidence, focus, weekly
 
 # -----------------------------------
-# PDF Generator
+# PDF
 # -----------------------------------
 def generate_pdf(history):
     user = history[-1]
@@ -189,7 +170,7 @@ def generate_pdf(history):
     pdf.add_page()
     pdf.set_font("Arial", size=12)
 
-    pdf.cell(0, 10, f"Diabetic Support Report for {user['name']} (Age {user['age']})", ln=True)
+    pdf.cell(0, 10, f"Diabetic Support Report – {user['name']} (Age {user['age']})", ln=True)
     pdf.ln(5)
 
     for d in history[-7:]:
@@ -199,21 +180,19 @@ def generate_pdf(history):
             ln=True
         )
 
-    file_name = "diabetes_report.pdf"
-    pdf.output(file_name)
-    return file_name
+    file = "diabetes_report.pdf"
+    pdf.output(file)
+    return file
 
 # -----------------------------------
-# Streamlit UI
+# UI
 # -----------------------------------
-st.set_page_config(page_title="Diabetic Support Agent", layout="centered")
-
+st.set_page_config("Diabetic Support Agent", layout="centered")
 st.title("📱 Diabetic Daily Support Agent")
-st.caption("Habit awareness • Pattern tracking • Non-diagnostic")
+st.caption("Pattern awareness • Habit guidance • Non-diagnostic")
 
 name = st.text_input("Your Name")
 age = st.number_input("Age", 10, 100, 40)
-
 date = st.text_input("Date", value=str(datetime.today().date()))
 fasting = st.number_input("Fasting Sugar", 60, 300, 110)
 post_meal = st.number_input("Post-Meal Sugar", 80, 350, 160)
@@ -227,17 +206,11 @@ if st.button("Submit Daily Log"):
         st.error("Please enter your name.")
         st.stop()
 
-    entry = create_entry(
-        name, age, date,
-        fasting, post_meal,
-        sleep, activity, mood, medication
-    )
-
-    with st.spinner("Analyzing your daily log…"):
-        st.session_state.result = diabetes_agent(entry)
+    entry = create_entry(name, age, date, fasting, post_meal, sleep, activity, mood, medication)
+    st.session_state.result = diabetes_agent(entry)
 
 # -----------------------------------
-# Result Rendering
+# Output
 # -----------------------------------
 if st.session_state.result:
     pattern, explanation, confidence, focus, weekly = st.session_state.result
@@ -256,10 +229,9 @@ if st.session_state.result:
         st.json(weekly)
 
     history = load_history()
-    pdf_file = generate_pdf(history)
-
-    with open(pdf_file, "rb") as f:
-        st.download_button("Download PDF Report", f, file_name=pdf_file)
+    pdf = generate_pdf(history)
+    with open(pdf, "rb") as f:
+        st.download_button("Download PDF Report", f, file_name=pdf)
 
     st.caption(
         "This tool does not provide medical advice. "
