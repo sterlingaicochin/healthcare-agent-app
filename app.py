@@ -164,6 +164,9 @@ def diabetes_agent(entry):
 # -----------------------------------
 # PDF
 # -----------------------------------
+def clean_text(text):
+    return text.encode("latin-1", "ignore").decode("latin-1")
+
 def generate_pdf(history):
     user = history[-1]
     pdf = FPDF()
