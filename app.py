@@ -173,19 +173,23 @@ def generate_pdf(history):
     pdf.add_page()
     pdf.set_font("Arial", size=12)
 
-    pdf.cell(0, 10, f"Diabetic Support Report – {user['name']} (Age {user['age']})", ln=True)
+    title = f"Diabetic Support Report - {user['name']} (Age {user['age']})"
+    pdf.cell(0, 10, clean_text(title), ln=True)
     pdf.ln(5)
 
     for d in history[-7:]:
-        pdf.cell(
-            0, 8,
-            f"{d['date']} | Fasting: {d['fasting']} | Post: {d['post_meal']} | Sleep: {d['sleep']}h",
-            ln=True
+        line = (
+            f"{d['date']} | "
+            f"Fasting: {d['fasting']} | "
+            f"Post: {d['post_meal']} | "
+            f"Sleep: {d['sleep']}h"
         )
+        pdf.cell(0, 8, clean_text(line), ln=True)
 
-    file = "diabetes_report.pdf"
-    pdf.output(file)
-    return file
+    file_name = "diabetes_report.pdf"
+    pdf.output(file_name)
+    return file_name
+
 
 # -----------------------------------
 # UI
