@@ -132,30 +132,43 @@ def ai_focus_generator(username, age, signals, today=True):
     if not signals:
         return f"Great job {username}! Your routine looks balanced."
 
-    day = "today" if today else "tomorrow"
+    if today:
+        task = """
+Explain what happened today in simple daily-life language.
+Focus on awareness, reflection, and calm reassurance.
+Do NOT repeat advice for tomorrow.
+"""
+    else:
+        task = """
+Give a clear, actionable focus plan for tomorrow.
+Mention specific actions like sleep timing, walking, routine, or reminders.
+Encourage gently.
+"""
 
     prompt = f"""
 User name: {username}
 Age: {age}
 
-Health signals:
+Health signals detected:
 {", ".join(signals)}
 
-Task:
-Explain the focus for {day} in simple, friendly, daily-life language.
-Encourage gently.
-Do NOT give medical diagnosis.
-If sugar is very high or very low, suggest consulting a doctor.
+{task}
+
+Rules:
+- No medical diagnosis
+- If sugar is very high or very low, suggest consulting a doctor
+- Keep tone friendly and human
 """
 
     try:
         response = gemini.generate_content(prompt)
         return response.text.strip()
     except Exception:
-        return (
-            f"{username}, focus on improving sleep, activity, and routine consistency. "
-            "If readings feel concerning, consult a doctor."
-        )
+        if today:
+            return f"{username}, today showed some imbalance. Take it easy and observe patterns."
+        else:
+            return f"{username}, tomorrow try improving sleep and light activity."
+
 
 # -----------------------------------
 # AGENT
