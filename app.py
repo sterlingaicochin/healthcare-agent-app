@@ -5,6 +5,10 @@ from statistics import mean
 from transformers import pipeline
 from fpdf import FPDF
 
+if "result" not in st.session_state:
+    st.session_state.result = None
+
+
 # -----------------------------------
 # Configuration
 # -----------------------------------
@@ -227,9 +231,21 @@ mood = st.selectbox("Mood", ["good", "okay", "low"])
 medication = st.selectbox("Medication Taken Today?", ["yes", "no"])
 
 if st.button("Submit Daily Log"):
-    entry = create_entry(name, age, date, fasting, post_meal, sleep, activity, mood, medication)
+    if not name.strip():
+        st.error("Please enter your name before submitting.")
+        st.stop()
 
-    pattern, explanation, confidence, focus, weekly = diabetes_agent(entry)
+    entry = create_entry(
+        name, age, date,
+        fasting, post_meal,
+        sleep, activity, mood, medication
+    )
+
+    with st.spinner("Analyzing your daily log... Please wait"):
+        st.session_state.result = diabetes_agent(entry)
+
+    if st.session_state.result:
+    pattern, explanation, confidence, focus, weekly = st.session_state.result
 
     st.success(f"Current Pattern: {pattern.title()}")
     st.metric("Daily Stability Confidence", f"{confidence}%")
@@ -243,6 +259,7 @@ if st.button("Submit Daily Log"):
     if weekly:
         st.info("### Weekly Trend")
         st.write(weekly)
+
 
     history = load_history()
     pdf_file = generate_pdf(history)
